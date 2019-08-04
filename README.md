@@ -5,10 +5,10 @@ Bash Scripts related to optimizing/compressing media files
 
 ## Pending
 
-* wire up source and destination parameters
-* set tar command for compress and delete
-* write function to display list of altered files
-* write function to track and calculate altered filesizes and total how much storage was saved.
+* wire up source and destination parameters - (High)
+* set tar command for compress and delete - (High)
+* write function to display list of altered files - (Low)
+* write function to track and calculate altered filesizes and total how much storage was saved. - (Low)
 
 ## Completed
 
