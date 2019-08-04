@@ -8,17 +8,10 @@
 # Usage: sh ./optimize-videos.sh source destination
 # "/my/videos/directory" "my/export/directory"
 
-# Command line Parameters
-# -d = output directory, if none, then conversions will be inplace
-# -z = archive (compress and delete) media files after conversion
-# -l = list files and calculate space saved at end of script run
-# -h = help, display list of commands
-
-
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
 
-#filesize in MB * 1,000,000
+#filesize in MB * 1000000
 minmoviesize="800000000"    # min 800MB - Used for larger Movies
 mintvsize="200000000"       # min 200MB - Used for TV shows
 maxtvsize="400000000"       # max 400MB - Used for TV shows
@@ -33,20 +26,16 @@ space=" "
 dot="."
 
 localUser=$USER
-if [ -n $1 ]; then
 
+if [ -n $1 ]; then
     source_dir="/home/$localUser/Videos"
     read -e -i "$source_dir" -p "Source Directory: " source_in
     source_dir="${source_in:-$source_dir}"
-
 else
-
     source_dir=$1
-
 fi
 
 if [ -n $2 ]; then
-
     export_dir="$source_dir/optimized"
     read -e -i "$export_dir" -p "Export Directory: (N for none) " export_in
     export_dir="${export_in:-$export_dir}"
@@ -55,9 +44,7 @@ if [ -n $2 ]; then
         [Nn]* ) inplace="Y";;
     esac
 else
-
     export_dir=$2     # move files into export location upon completion (/home/user/Videos/optimized)
-
 fi
 
 echo " "
