@@ -7,6 +7,7 @@
 #
 # Usage: sh ./optimize-videos.sh source destination
 # "/my/videos/directory" "my/export/directory"
+# TODO: exclude export_dir from processing
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
@@ -58,48 +59,50 @@ fi
 echo " "
 echo " "
 
-
 # Enable special handling to prevent expansion to a
 # literal '/tmp/backup/*' when no matches are found.
 shopt -s nullglob
+shopt -s dotglob # allow for dotfolders
 
-for d in "$start_dir"/*/
+cd $source_dir
+find $source_dir/* -type d | while read -r d
 do
-    cd $d
-    echo "pwd: "$d
-    optimize_dir="$export_dir/$(basename $d)"           # recreate the same folder structure onto the export location
-    echo "export_dir=$optimize_dir"
-    mkdir -p $optimize_dir
-    for file in *
+    if [ "$d" != "$export_dir" ]; then
+        find $d/* -type f -mindepth 1 -maxdepth 1 | while read -r f
         do
+            originalfile=$f
 
-        if [ -f "$file" ]; then
+            MIMETYPE=`file -b --mime-type $originalfile`
 
-            MIMETYPE=`file -b --mime-type $file`
+            extpos=${#originalfile}-3                   # Position of extension (without dot)
+            ext=${originalfile:$extpos:4}               # Store the extension
+            extlc="$(echo $ext | tr '[A-Z]' '[a-z]')"   # Setting Extension to lowercase
+            fwoext=${originalfile:0:$extpos}            # Store filename without extension
 
-            extpos=${#file}-3                           # Position of extension (without dot)
-            ext=${file:$extpos:4}                       # Store the extension
-            extlc="$(echo $ext | tr '[A-Z]' '[a-z]')"   # echo "File extension: " $ext
-            fwoext=${file:0:$extpos}                    # Store filename without extension
-
-            # echo "Processing renaming rules for $file"
-
+            # Rules for cleaning the filename
             fwoext=${fwoext//$comma/}                   # Remove comma
             fwoext=${fwoext//$apos/}                    # Remove apostrophe
             fwoext=${fwoext//$space/$underscore}        # Replace space with underscore
             #fwoext=${fwoext//$dot/$underscore}         # Replace dot with underscore
             fwoext=${fwoext//../.}                      # Remove double dots
             cleanfile=$fwoext$extlc
-            mv "$file" "$cleanfile"
+            mv "$originalfile" "$cleanfile"
 
             filesize=$(wc -c "$cleanfile" | awk '{print $1}')
 
             if [[ $filesize -ge $mintvsize && $filesize -le $maxtvsize ] || [ $filesize -ge $minmoviesize ]]; then
 
-                # Shrink video files and output as mp4
-                #echo "compressing $cleanfile"
-                #tar -cvzf "$fwoext"tar.gz $cleanfile
-                newfile="$optimize_dir/$fwoext""mp4"
+                if [ $inplace ]; then
+                    cd ${cleanfile%/*}
+                    tar --remove-files -czvf $(basename $f).tar.gz $(basename $f)
+                    newfile="${cleanfile%/*}/$fwoext""mp4"
+                    echo $newfile
+                else
+                    newfile=${f/$source_dir/$export_dir}
+                    optimized_dir=${newfile%/*}
+                    mkdir -p $optimized_dir
+                    newfile="$optimized_dir/$fwoext""mp4"
+                fi
 
                 case $MIMETYPE in
                     "video/x-msvideo"|"video/x-ms-asf")
@@ -121,9 +124,10 @@ do
                 touch --reference="$cleanfile" "$newfile"
 
             fi
-        fi
-    done
+        done
+    fi
 done
 
+shopt -u dotglob
 shopt -u nullglob       # Unset shell option after use, if desired. Nullglob is unset by default.
 IFS=$SAVEIFS            # restore $IFS
