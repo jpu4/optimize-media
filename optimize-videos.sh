@@ -9,7 +9,7 @@
 # "/my/videos/directory" "my/export/directory"
 
 debug=
-dogearfilefound=0
+
 if [ $debug ]; then
     clear
     echo "DEBUG ENABLED"
@@ -26,11 +26,7 @@ maxtvsize="458892810"       # max 450MB - Used for TV shows
 DateTimeFormat="%Y%m%d_%H%M%S%3N"
 DateStamp=$(date +"%Y%m%d")
 DateTime=$(date +"%Y%m%d_%H%M%S%3N")
-comma=","
-apos="'"
-underscore="_"
-space=" "
-dot="."
+comma="," ; apos="'" ; underscore="_" ; space=" " ; dot="."
 
 localUser=$USER
 
@@ -87,111 +83,110 @@ function processfile(){
     fwoext=${fwoext//../.}                      # Remove double dots
     cleanfile=$fwoext$extlc
 
-    if [ "$cleanfile" != "$originalfile" ]; then
-        if [ $debug ]; then
-            echo "mv $originalfile $cleanfile"
+    dogearfile=${file/"."$extlc/"-optimized.txt"}
+
+    if [ ! -f $dogearfile ]; then
+
+        if [ "$cleanfile" != "$originalfile" ]; then
+            if [ $debug ]; then
+                echo "mv $originalfile $cleanfile"
+            else
+                mv "$originalfile" "$cleanfile"
+            fi
+        fi
+
+        if [ $inplace ]; then
+            echo "EXTENSION: $extlc"
+            newfile="${cleanfile%/*}/$fwoext""mp4"
+            newfile="$fwoext""mp4"
+            if [[ $extlc == "mp4" ]]; then
+                #rename mp4 file to old
+                oldfile=${fwoext//$dot/"-old.$extlc"}
+                if [ $debug ]; then
+                    echo "mv $cleanfile $oldfile"
+                else
+                    mv "$cleanfile" "$oldfile"
+                fi
+                cleanfile=$oldfile
+                echo "RENAMED TO: $cleanfile"
+            fi
+            echo "NEWFILE: $newfile"
         else
-            mv "$originalfile" "$cleanfile"
+            newfile=${cleanfile/$source_dir/$export_dir}
+            optimized_dir=${newfile%/*}
+            mkdir -p $optimized_dir
+            newfile="$optimized_dir/$(basename $fwoext)""mp4"
+            echo "NEWFILE: $newfile"
         fi
-    fi
 
-    if [ $inplace ]; then
-        echo "EXTENSION: $extlc"
-        newfile="${cleanfile%/*}/$fwoext""mp4"
-        newfile="$fwoext""mp4"
-        if [[ $extlc == "mp4" ]]; then
-            #rename mp4 file to old
-            oldfile=${fwoext//$dot/"-old.$extlc"}
-            if [ $debug ]; then
-                echo "mv $cleanfile $oldfile"
-            else
-                mv "$cleanfile" "$oldfile"
-            fi
-            cleanfile=$oldfile
-            echo "RENAMED TO: $cleanfile"
+        case $MIMETYPE in
+            "video/x-msvideo"|"video/x-ms-asf")
+
+                # ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile     # changed 20190805 JU produced no sound
+                if [ $debug ]; then
+                    echo "ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libfdk_aac -crf 23 $newfile"
+                else
+                    ffmpeg -y -i $cleanfile -c:v libx264 -crf 19 -preset slow -c:a aac -b:a 192k -ac 2 $newfile
+
+                fi
+
+            ;;
+            "video/quicktime"|"video/3gpp"|"video/mpeg"|"video/x-matroska"|"video/mp4")
+
+                #ffmpeg -y -i $cleanfile -c:v libx264 -crf 30 $newfile
+                if [ $debug ]; then
+                    echo "ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile"
+                else
+                    ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile
+                fi
+
+            ;;
+        esac
+
+        # copy metadata to match
+        chmod --reference="$cleanfile" "$newfile"
+        chown --reference="$cleanfile" "$newfile"
+        touch --reference="$cleanfile" "$newfile"
+
+        echo "Files Processed: "$COUNTER
+        COUNTER=$((COUNTER + 1))
+
+        newfilesize=$(du -h "$newfile" | awk '{print $1}')
+
+        dogearfile=${cleanfile/"."$extlc/"-optimized.txt"}
+        echo "FILE PROCESSED: $(basename $cleanfile)" >> $dogearfile
+        echo "BATCH NUMBER: $COUNTER" >> $dogearfile
+        echo "DATE PROCESSED: $DateStamp" >> $dogearfile
+        echo "ORIGINAL FILESIZE: $humanfilesize" >> $dogearfile
+        if [ $oldfile ]; then
+            echo "NEW FILENAME AFTER CONVERSION: $newfile" >> $dogearfile
         fi
-        echo "NEWFILE: $newfile"
+        echo "NEW FILE: $newfile" >> $dogearfile
+        echo "NEW FILESIZE: $newfilesize" >> $dogearfile
+        echo "DOGEARFILE: " $dogearfile
     else
-        newfile=${cleanfile/$source_dir/$export_dir}
-        optimized_dir=${newfile%/*}
-        mkdir -p $optimized_dir
-        newfile="$optimized_dir/$(basename $fwoext)""mp4"
-        echo "NEWFILE: $newfile"
+        echo "Skipping $(basename $file), already processed"
     fi
-
-    case $MIMETYPE in
-        "video/x-msvideo"|"video/x-ms-asf")
-
-            #ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile
-            if [ $debug ]; then
-                echo "ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile"
-            else
-                ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile
-            fi
-
-        ;;
-        "video/quicktime"|"video/3gpp"|"video/mpeg"|"video/x-matroska"|"video/mp4")
-
-            #ffmpeg -y -i $cleanfile -c:v libx264 -crf 30 $newfile
-            if [ $debug ]; then
-                echo "ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile"
-            else
-                ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile
-            fi
-
-        ;;
-    esac
-
-    # copy metadata to match
-    chmod --reference="$cleanfile" "$newfile"
-    chown --reference="$cleanfile" "$newfile"
-    touch --reference="$cleanfile" "$newfile"
-
-    echo "Files Processed: "$COUNTER
-    COUNTER=$((COUNTER + 1))
-
-    newfilesize=$(du -h "$newfile" | awk '{print $1}')
-
-    dogearfile="${cleanfile%/*}/"$fwoext"optimized.txt"
-    dogearfile=${dogearfile//".optimized"/"optimized"} 
-    echo "FILE PROCESSED: $(basename $cleanfile)" >> $dogearfile
-    echo "BATCH NUMBER: $COUNTER" >> $dogearfile
-    echo "DATE PROCESSED: $DateStamp" >> $dogearfile
-    echo "ORIGINAL FILESIZE: $humanfilesize" >> $dogearfile
-    if [ $oldfile ]; then
-        echo "NEW FILENAME AFTER CONVERSION: $newfile" >> $dogearfile
-    fi
-    echo "NEW FILESIZE: $newfilesize" >> $dogearfile
 }
 
 shopt -s nullglob
 shopt -s dotglob # allow for dotfolders
 
 find $source_dir -type f \( -iname \*.mp4 -o -iname \*.mkv -o -iname \*.avi -o -iname \*.mov -o -iname \*.mpg \) -print0 | while IFS= read -r -d '' file; do
-if [ $debug ]; then
-    rm -rf ${file%/*}/optimized.txt
-fi
+
     filesize=$(wc -c "$file" | awk '{print $1}')
 
     # MOVIE LOOP
     if [[ $filesize -ge $minmoviesize ]] ; then
-        if [ ! -f ${file%/*}/optimized.txt ]; then
             echo "TYPE: MOVIE or LARGE TV EPISODE"
             processfile
             echo ""
-        else
-            echo "Skipping $(basename $file), already processed"
-        fi
     else
         # TV LOOP
         if [[ $filesize -ge $mintvsize ]] && [[ $filesize -le $maxtvsize ]] ; then
-            if [ ! -f ${file%/*}/optimized.txt ]; then
                 echo "TYPE: TV"
                 processfile
                 echo ""
-            else
-                echo "Skipping $(basename $file), already processed"
-            fi
         fi
     fi
 done
