@@ -7,15 +7,21 @@
 #
 # Usage: sh ./optimize-videos.sh source destination
 # "/my/videos/directory" "my/export/directory"
-# TODO: exclude export_dir from processing
+
+debug=
+dogearfilefound=0
+if [ $debug ]; then
+    clear
+    echo "DEBUG ENABLED"
+fi
 
 SAVEIFS=$IFS
 IFS=$(echo -en "\n\b")
+COUNTER=1
 
-#filesize in MB * 1000000
 minmoviesize="800000000"    # min 800MB - Used for larger Movies
-mintvsize="200000000"       # min 200MB - Used for TV shows
-maxtvsize="400000000"       # max 400MB - Used for TV shows
+mintvsize="300000000"       # min 300MB - Used for TV shows
+maxtvsize="458892810"       # max 450MB - Used for TV shows
 
 DateTimeFormat="%Y%m%d_%H%M%S%3N"
 DateStamp=$(date +"%Y%m%d")
@@ -45,7 +51,7 @@ if [ -n $2 ]; then
         [Nn]* ) inplace="Y";;
     esac
 else
-    export_dir=$2     # move files into export location upon completion (/home/user/Videos/optimized)
+    export_dir=$2
 fi
 
 echo " "
@@ -59,75 +65,136 @@ fi
 echo " "
 echo " "
 
-# Enable special handling to prevent expansion to a
-# literal '/tmp/backup/*' when no matches are found.
+function processfile(){
+
+    echo "FILE: " $file
+    humanfilesize=$(du -h "$file" | awk '{print $1}')
+    echo "FILESIZE: " $humanfilesize
+
+    originalfile=$file
+
+    MIMETYPE=`file -b --mime-type $originalfile`
+
+    extpos=${#originalfile}-3                   # Position of extension (without dot)
+    ext=${originalfile:$extpos:4}               # Store the extension
+    extlc="$(echo $ext | tr '[A-Z]' '[a-z]')"   # Setting Extension to lowercase
+    fwoext=${originalfile:0:$extpos}            # Store filename without extension
+
+    # Rules for cleaning the filename
+    fwoext=${fwoext//$comma/}                   # Remove comma
+    fwoext=${fwoext//$apos/}                    # Remove apostrophe
+    fwoext=${fwoext//$space/$underscore}        # Replace space with underscore
+    fwoext=${fwoext//../.}                      # Remove double dots
+    cleanfile=$fwoext$extlc
+
+    if [ "$cleanfile" != "$originalfile" ]; then
+        if [ $debug ]; then
+            echo "mv $originalfile $cleanfile"
+        else
+            mv "$originalfile" "$cleanfile"
+        fi
+    fi
+
+    if [ $inplace ]; then
+        echo "EXTENSION: $extlc"
+        newfile="${cleanfile%/*}/$fwoext""mp4"
+        newfile="$fwoext""mp4"
+        if [[ $extlc == "mp4" ]]; then
+            #rename mp4 file to old
+            oldfile=${fwoext//$dot/"-old.$extlc"}
+            if [ $debug ]; then
+                echo "mv $cleanfile $oldfile"
+            else
+                mv "$cleanfile" "$oldfile"
+            fi
+            cleanfile=$oldfile
+            echo "RENAMED TO: $cleanfile"
+        fi
+        echo "NEWFILE: $newfile"
+    else
+        newfile=${cleanfile/$source_dir/$export_dir}
+        optimized_dir=${newfile%/*}
+        mkdir -p $optimized_dir
+        newfile="$optimized_dir/$(basename $fwoext)""mp4"
+        echo "NEWFILE: $newfile"
+    fi
+
+    case $MIMETYPE in
+        "video/x-msvideo"|"video/x-ms-asf")
+
+            #ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile
+            if [ $debug ]; then
+                echo "ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile"
+            else
+                ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile
+            fi
+
+        ;;
+        "video/quicktime"|"video/3gpp"|"video/mpeg"|"video/x-matroska"|"video/mp4")
+
+            #ffmpeg -y -i $cleanfile -c:v libx264 -crf 30 $newfile
+            if [ $debug ]; then
+                echo "ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile"
+            else
+                ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile
+            fi
+
+        ;;
+    esac
+
+    # copy metadata to match
+    chmod --reference="$cleanfile" "$newfile"
+    chown --reference="$cleanfile" "$newfile"
+    touch --reference="$cleanfile" "$newfile"
+
+    echo "Files Processed: "$COUNTER
+    COUNTER=$((COUNTER + 1))
+
+    newfilesize=$(du -h "$newfile" | awk '{print $1}')
+
+    dogearfile="${cleanfile%/*}/"$fwoext"optimized.txt"
+    dogearfile=${dogearfile//".optimized"/"optimized"} 
+    echo "FILE PROCESSED: $(basename $cleanfile)" >> $dogearfile
+    echo "BATCH NUMBER: $COUNTER" >> $dogearfile
+    echo "DATE PROCESSED: $DateStamp" >> $dogearfile
+    echo "ORIGINAL FILESIZE: $humanfilesize" >> $dogearfile
+    if [ $oldfile ]; then
+        echo "NEW FILENAME AFTER CONVERSION: $newfile" >> $dogearfile
+    fi
+    echo "NEW FILESIZE: $newfilesize" >> $dogearfile
+}
+
 shopt -s nullglob
 shopt -s dotglob # allow for dotfolders
 
-cd $source_dir
-find $source_dir/* -type d | while read -r d
-do
-    if [ "$d" != "$export_dir" ]; then
-        find $d/* -type f -mindepth 1 -maxdepth 1 | while read -r f
-        do
-            originalfile=$f
+find $source_dir -type f \( -iname \*.mp4 -o -iname \*.mkv -o -iname \*.avi -o -iname \*.mov -o -iname \*.mpg \) -print0 | while IFS= read -r -d '' file; do
+if [ $debug ]; then
+    rm -rf ${file%/*}/optimized.txt
+fi
+    filesize=$(wc -c "$file" | awk '{print $1}')
 
-            MIMETYPE=`file -b --mime-type $originalfile`
-
-            extpos=${#originalfile}-3                   # Position of extension (without dot)
-            ext=${originalfile:$extpos:4}               # Store the extension
-            extlc="$(echo $ext | tr '[A-Z]' '[a-z]')"   # Setting Extension to lowercase
-            fwoext=${originalfile:0:$extpos}            # Store filename without extension
-
-            # Rules for cleaning the filename
-            fwoext=${fwoext//$comma/}                   # Remove comma
-            fwoext=${fwoext//$apos/}                    # Remove apostrophe
-            fwoext=${fwoext//$space/$underscore}        # Replace space with underscore
-            #fwoext=${fwoext//$dot/$underscore}         # Replace dot with underscore
-            fwoext=${fwoext//../.}                      # Remove double dots
-            cleanfile=$fwoext$extlc
-            mv "$originalfile" "$cleanfile"
-
-            filesize=$(wc -c "$cleanfile" | awk '{print $1}')
-
-            if [[ $filesize -ge $mintvsize && $filesize -le $maxtvsize ] || [ $filesize -ge $minmoviesize ]]; then
-
-                if [ $inplace ]; then
-                    cd ${cleanfile%/*}
-                    tar --remove-files -czvf $(basename $f).tar.gz $(basename $f)
-                    newfile="${cleanfile%/*}/$fwoext""mp4"
-                    echo $newfile
-                else
-                    newfile=${f/$source_dir/$export_dir}
-                    optimized_dir=${newfile%/*}
-                    mkdir -p $optimized_dir
-                    newfile="$optimized_dir/$fwoext""mp4"
-                fi
-
-                case $MIMETYPE in
-                    "video/x-msvideo"|"video/x-ms-asf")
-
-                        ffmpeg -y -i $cleanfile -c:a aac -b:a 128k -c:v libx264 -crf 23 $newfile
-
-                    ;;
-                    "video/quicktime"|"video/3gpp"|"video/mpeg"|"video/x-matroska"|"video/mp4")
-
-                        #ffmpeg -y -i $cleanfile -c:v libx264 -crf 30 $newfile
-                        ffmpeg -y -i $cleanfile -vf "scale=iw/3:ih/3" -c:a copy -strict -2 $newfile
-
-                    ;;
-                esac
-
-                # copy metadata to match
-                chmod --reference="$cleanfile" "$newfile"
-                chown --reference="$cleanfile" "$newfile"
-                touch --reference="$cleanfile" "$newfile"
-
+    # MOVIE LOOP
+    if [[ $filesize -ge $minmoviesize ]] ; then
+        if [ ! -f ${file%/*}/optimized.txt ]; then
+            echo "TYPE: MOVIE or LARGE TV EPISODE"
+            processfile
+            echo ""
+        else
+            echo "Skipping $(basename $file), already processed"
+        fi
+    else
+        # TV LOOP
+        if [[ $filesize -ge $mintvsize ]] && [[ $filesize -le $maxtvsize ]] ; then
+            if [ ! -f ${file%/*}/optimized.txt ]; then
+                echo "TYPE: TV"
+                processfile
+                echo ""
+            else
+                echo "Skipping $(basename $file), already processed"
             fi
-        done
+        fi
     fi
 done
 
-shopt -u dotglob
-shopt -u nullglob       # Unset shell option after use, if desired. Nullglob is unset by default.
+#shopt -u nullglob       # Unset shell option after use, if desired. Nullglob is unset by default.
 IFS=$SAVEIFS            # restore $IFS
